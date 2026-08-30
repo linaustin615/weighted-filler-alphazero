@@ -1,0 +1,80 @@
+{
+  "board_seeds": [
+    20001,
+    30001,
+    40001,
+    50001,
+    60001
+  ],
+  "checkpoint": "weighted_filler_net.pt",
+  "config": {},
+  "gain_scale": 60.0,
+  "results": {
+    "depth3": {
+      "draws": 6,
+      "games": 1000,
+      "losses": 471,
+      "match_score": 0.526,
+      "match_score_ci95": [
+        0.5115,
+        0.541
+      ],
+      "strict_win_rate": 0.523,
+      "strict_win_rate_ci95": [
+        0.508,
+        0.538
+      ],
+      "wins": 523
+    },
+    "greedy": {
+      "draws": 5,
+      "games": 1000,
+      "losses": 422,
+      "match_score": 0.5755,
+      "match_score_ci95": [
+        0.5585,
+        0.593
+      ],
+      "strict_win_rate": 0.573,
+      "strict_win_rate_ci95": [
+        0.556,
+        0.591
+      ],
+      "wins": 573
+    }
+  },
+  "untrained_control": {
+    "depth3": {
+      "draws": 2,
+      "games": 1000,
+      "losses": 552,
+      "match_score": 0.447,
+      "match_score_ci95": [
+        0.4315,
+        0.462
+      ],
+      "strict_win_rate": 0.446,
+      "strict_win_rate_ci95": [
+        0.43,
+        0.461
+      ],
+      "wins": 446
+    },
+    "greedy": {
+      "draws": 0,
+      "games": 1000,
+      "losses": 499,
+      "match_score": 0.501,
+      "match_score_ci95": [
+        0.5,
+        0.503
+      ],
+      "strict_win_rate": 0.501,
+      "strict_win_rate_ci95": [
+        0.5,
+        0.503
+      ],
+      "wins": 501
+    }
+  }
+}

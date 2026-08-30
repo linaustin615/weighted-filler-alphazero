@@ -1,0 +1,8 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+
+#keep local training artifacts outside Git
+runs/
+IMPLEMENTATION_PLAN.md

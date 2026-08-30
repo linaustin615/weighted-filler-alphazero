@@ -1,0 +1,199 @@
+{
+  "aggregate": {
+    "depth3": {
+      "maximum_match_score": 0.5175,
+      "mean_match_score": 0.5141666666666667,
+      "minimum_match_score": 0.512,
+      "seed_match_scores": [
+        0.5175,
+        0.513,
+        0.512
+      ]
+    },
+    "greedy": {
+      "maximum_match_score": 0.5775,
+      "mean_match_score": 0.5671666666666667,
+      "minimum_match_score": 0.56,
+      "seed_match_scores": [
+        0.564,
+        0.5775,
+        0.56
+      ]
+    },
+    "random": {
+      "maximum_match_score": 0.9695,
+      "mean_match_score": 0.9646666666666667,
+      "minimum_match_score": 0.9605,
+      "seed_match_scores": [
+        0.964,
+        0.9695,
+        0.9605
+      ]
+    }
+  },
+  "seeds": [
+    {
+      "gain_scale": 50.0,
+      "results": {
+        "depth3": {
+          "draws": 5,
+          "games": 1000,
+          "losses": 480,
+          "match_score": 0.5175,
+          "match_score_ci95": [
+            0.5035,
+            0.532
+          ],
+          "strict_win_rate": 0.515,
+          "strict_win_rate_ci95": [
+            0.5,
+            0.529
+          ],
+          "wins": 515
+        },
+        "greedy": {
+          "draws": 4,
+          "games": 1000,
+          "losses": 434,
+          "match_score": 0.564,
+          "match_score_ci95": [
+            0.547,
+            0.5815
+          ],
+          "strict_win_rate": 0.562,
+          "strict_win_rate_ci95": [
+            0.545,
+            0.579
+          ],
+          "wins": 562
+        },
+        "random": {
+          "draws": 2,
+          "games": 1000,
+          "losses": 35,
+          "match_score": 0.964,
+          "match_score_ci95": [
+            0.952,
+            0.975
+          ],
+          "strict_win_rate": 0.963,
+          "strict_win_rate_ci95": [
+            0.951,
+            0.975
+          ],
+          "wins": 963
+        }
+      },
+      "seed": 0
+    },
+    {
+      "gain_scale": 50.0,
+      "results": {
+        "depth3": {
+          "draws": 4,
+          "games": 1000,
+          "losses": 485,
+          "match_score": 0.513,
+          "match_score_ci95": [
+            0.498,
+            0.5275
+          ],
+          "strict_win_rate": 0.511,
+          "strict_win_rate_ci95": [
+            0.496,
+            0.526
+          ],
+          "wins": 511
+        },
+        "greedy": {
+          "draws": 1,
+          "games": 1000,
+          "losses": 422,
+          "match_score": 0.5775,
+          "match_score_ci95": [
+            0.5605,
+            0.595
+          ],
+          "strict_win_rate": 0.577,
+          "strict_win_rate_ci95": [
+            0.56,
+            0.595
+          ],
+          "wins": 577
+        },
+        "random": {
+          "draws": 1,
+          "games": 1000,
+          "losses": 30,
+          "match_score": 0.9695,
+          "match_score_ci95": [
+            0.9585,
+            0.9795
+          ],
+          "strict_win_rate": 0.969,
+          "strict_win_rate_ci95": [
+            0.958,
+            0.979
+          ],
+          "wins": 969
+        }
+      },
+      "seed": 1
+    },
+    {
+      "gain_scale": 55.0,
+      "results": {
+        "depth3": {
+          "draws": 2,
+          "games": 1000,
+          "losses": 487,
+          "match_score": 0.512,
+          "match_score_ci95": [
+            0.496,
+            0.528
+          ],
+          "strict_win_rate": 0.511,
+          "strict_win_rate_ci95": [
+            0.495,
+            0.527
+          ],
+          "wins": 511
+        },
+        "greedy": {
+          "draws": 4,
+          "games": 1000,
+          "losses": 438,
+          "match_score": 0.56,
+          "match_score_ci95": [
+            0.542,
+            0.578
+          ],
+          "strict_win_rate": 0.558,
+          "strict_win_rate_ci95": [
+            0.54,
+            0.576
+          ],
+          "wins": 558
+        },
+        "random": {
+          "draws": 1,
+          "games": 1000,
+          "losses": 39,
+          "match_score": 0.9605,
+          "match_score_ci95": [
+            0.9485,
+            0.9715
+          ],
+          "strict_win_rate": 0.96,
+          "strict_win_rate_ci95": [
+            0.948,
+            0.971
+          ],
+          "wins": 960
+        }
+      },
+      "seed": 2
+    }
+  ],
+  "selection": "best development checkpoint and development-selected gain"
+}
