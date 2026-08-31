@@ -6,7 +6,6 @@ matplotlib.use("Agg")
 import matplotlib.patheffects as path_effects
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
-from matplotlib.colors import ListedColormap
 from matplotlib.patches import Patch, Rectangle
 import numpy as np
 import torch
@@ -123,6 +122,14 @@ def record_episode(game, network, initial_state):
     }
 
 
+def board_colors(state):
+    palette = np.array([
+        matplotlib.colors.to_rgba(color)
+        for color in COLOR_PALETTE
+    ])
+    return palette[state.board]
+
+
 def make_board(axis, game, initial_state, title, title_color):
     axis.set_facecolor(PANEL)
     axis.set_xlim(-0.5, game.size - 0.5)
@@ -139,10 +146,7 @@ def make_board(axis, game, initial_state, title, title_color):
         spine.set_linewidth(1.4)
 
     board_image = axis.imshow(
-        initial_state.board,
-        cmap=ListedColormap(COLOR_PALETTE),
-        vmin=-0.5,
-        vmax=game.n_colors - 0.5,
+        board_colors(initial_state),
         interpolation="nearest",
         zorder=1,
     )
@@ -244,11 +248,28 @@ def owner_overlay(state):
     return overlay
 
 
-def update_board(artists, data, frame_index, game):
-    state_index = min(frame_index, len(data["states"]) - 1)
+def transition_position(data, frame_position):
+    maximum = len(data["states"]) - 1
+    position = min(float(frame_position), maximum)
+    state_index = int(np.floor(position))
+    next_index = min(state_index + 1, maximum)
+    progress = position - state_index
+    progress = progress * progress * (3.0 - 2.0 * progress)
+    return state_index, next_index, progress
+
+
+def update_board(artists, data, frame_position, game):
+    state_index, next_index, progress = transition_position(data, frame_position)
     state = data["states"][state_index]
-    artists["board"].set_data(state.board)
-    artists["owner"].set_data(owner_overlay(state))
+    next_state = data["states"][next_index]
+    artists["board"].set_data(
+        (1.0 - progress) * board_colors(state)
+        + progress * board_colors(next_state)
+    )
+    artists["owner"].set_data(
+        (1.0 - progress) * owner_overlay(state)
+        + progress * owner_overlay(next_state)
+    )
 
     capture = (
         data["captures"][state_index]
@@ -258,9 +279,16 @@ def update_board(artists, data, frame_index, game):
     for index, box in enumerate(artists["capture_boxes"]):
         row, column = divmod(index, game.size)
         box.set_visible(bool(capture[row, column]))
+        box.set_alpha(1.0 - 0.65 * progress)
 
-    network_score = game.score(state, 1)
-    greedy_score = game.score(state, 2)
+    network_score = round(
+        (1.0 - progress) * data["network_scores"][state_index]
+        + progress * data["network_scores"][next_index]
+    )
+    greedy_score = round(
+        (1.0 - progress) * data["greedy_scores"][state_index]
+        + progress * data["greedy_scores"][next_index]
+    )
     artists["score"].set_text(
         f"network {network_score}   ·   greedy {greedy_score}"
     )
@@ -322,8 +350,8 @@ def style_choice_axis(axis, title, title_color):
     return {"bars": bars, "label": label}
 
 
-def update_choice(artists, data, frame_index):
-    state_index = min(frame_index, len(data["states"]) - 1)
+def update_choice(artists, data, frame_position):
+    state_index, _, progress = transition_position(data, frame_position)
     if state_index >= len(data["actions"]):
         for bar in artists["bars"]:
             bar.set_width(0)
@@ -336,6 +364,7 @@ def update_choice(artists, data, frame_index):
     preference = data["preferences"][state_index]
     for color, bar in enumerate(artists["bars"]):
         bar.set_width(float(preference[color]))
+        bar.set_alpha(1.0 - 0.18 * progress)
         if color == action:
             bar.set_edgecolor(HIGHLIGHT)
             bar.set_linewidth(2.2)
@@ -360,13 +389,18 @@ def parse_args():
     parser.add_argument("--gain-scale", type=float, default=50.0)
     parser.add_argument("--board-seed", type=int, default=40_001)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
-    parser.add_argument("--fps", type=int, default=5)
+    parser.add_argument("--fps", type=int, default=10)
+    parser.add_argument("--transition-frames", type=int, default=3)
     parser.add_argument("--dpi", type=int, default=100)
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
+    if args.fps <= 0:
+        raise ValueError("fps must be positive")
+    if args.transition_frames <= 0:
+        raise ValueError("transition_frames must be positive")
     game = FillerGame()
     initial_state = game.initial_state(np.random.default_rng(args.board_seed))
     trained_network = load_network(args.checkpoint, args.gain_scale)
@@ -553,23 +587,36 @@ def main():
     )
 
     frame_count = max(len(trained["states"]), len(fresh["states"]))
-    frames = list(range(frame_count))
+    frames = [
+        ply + phase / args.transition_frames
+        for ply in range(frame_count - 1)
+        for phase in range(args.transition_frames)
+    ]
+    frames.append(float(frame_count - 1))
     frames.extend([frames[-1]] * (args.fps * 2))
 
-    def update(frame_index):
-        update_board(trained_artists, trained, frame_index, game)
-        update_board(fresh_artists, fresh, frame_index, game)
-        update_choice(trained_choice, trained, frame_index)
-        update_choice(fresh_choice, fresh, frame_index)
+    def line_data(data, key, frame_position):
+        state_index, next_index, progress = transition_position(data, frame_position)
+        x = list(np.arange(state_index + 1, dtype=np.float32))
+        y = list(data[key][:state_index + 1].astype(np.float32))
+        if next_index > state_index and progress > 0:
+            x.append(state_index + progress)
+            y.append(
+                (1.0 - progress) * data[key][state_index]
+                + progress * data[key][next_index]
+            )
+        return x, y
 
-        trained_end = min(frame_index + 1, len(trained["states"]))
-        fresh_end = min(frame_index + 1, len(fresh["states"]))
-        trained_x = np.arange(trained_end)
-        fresh_x = np.arange(fresh_end)
-        trained_network_line.set_data(trained_x, trained["network_scores"][:trained_end])
-        trained_greedy_line.set_data(trained_x, trained["greedy_scores"][:trained_end])
-        fresh_network_line.set_data(fresh_x, fresh["network_scores"][:fresh_end])
-        fresh_greedy_line.set_data(fresh_x, fresh["greedy_scores"][:fresh_end])
+    def update(frame_position):
+        update_board(trained_artists, trained, frame_position, game)
+        update_board(fresh_artists, fresh, frame_position, game)
+        update_choice(trained_choice, trained, frame_position)
+        update_choice(fresh_choice, fresh, frame_position)
+
+        trained_network_line.set_data(*line_data(trained, "network_scores", frame_position))
+        trained_greedy_line.set_data(*line_data(trained, "greedy_scores", frame_position))
+        fresh_network_line.set_data(*line_data(fresh, "network_scores", frame_position))
+        fresh_greedy_line.set_data(*line_data(fresh, "greedy_scores", frame_position))
 
     animation = FuncAnimation(
         figure,
