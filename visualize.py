@@ -10,7 +10,7 @@ from matplotlib.patches import Patch, Rectangle
 import numpy as np
 import torch
 
-from baselines import greedy_move
+from baselines import greedy_move, random_move
 from game import FillerGame
 from policy import PolicyNet
 
@@ -26,11 +26,11 @@ TEXT = "#edf4ff"
 MUTED = "#91a4c0"
 GRID = "#07111f"
 TRAINED = "#45d6b0"
-FRESH = "#ff6b7a"
+ANCHOR = "#ff6b7a"
+RANDOM = "#a78bfa"
 GREEDY = "#ffb454"
 HIGHLIGHT = "#ffe66d"
 WALL = "#172235"
-NEUTRAL = "#8a98ad"
 
 COLOR_PALETTE = (
     "#ef476f",
@@ -79,7 +79,14 @@ def greedy_choice(game, state):
     return greedy_move(game, state), preferences
 
 
-def record_episode(game, network, initial_state):
+def random_choice(game, state, rng):
+    legal = game.legal_moves(state)
+    preferences = np.zeros(game.n_colors, dtype=np.float32)
+    preferences[legal] = 1.0
+    return random_move(game, state, rng), preferences, None
+
+
+def record_episode(game, initial_state, policy_choice, metadata):
     state = initial_state
     states = [state]
     actions = []
@@ -91,8 +98,8 @@ def record_episode(game, network, initial_state):
 
     while not game.is_terminal(state):
         if state.player == 1:
-            action, preference, value = network_choice(game, network, state)
-            actor = "network"
+            action, preference, value = policy_choice(state)
+            actor = "policy"
         else:
             action, preference = greedy_choice(game, state)
             value = None
@@ -109,6 +116,8 @@ def record_episode(game, network, initial_state):
         state = game.apply(state, action)
         states.append(state)
 
+    policy_scores = np.array([game.score(state, 1) for state in states])
+    greedy_scores = np.array([game.score(state, 2) for state in states])
     return {
         "states": states,
         "actions": actions,
@@ -117,8 +126,10 @@ def record_episode(game, network, initial_state):
         "values": values,
         "captures": captures,
         "gains": gains,
-        "network_scores": np.array([game.score(state, 1) for state in states]),
-        "greedy_scores": np.array([game.score(state, 2) for state in states]),
+        "policy_scores": policy_scores,
+        "greedy_scores": greedy_scores,
+        "score_margins": policy_scores - greedy_scores,
+        **metadata,
     }
 
 
@@ -234,12 +245,12 @@ def make_board(axis, game, initial_state, title, title_color):
     }
 
 
-def owner_overlay(state):
+def owner_overlay(state, policy_color):
     overlay = np.zeros((*state.owner.shape, 4), dtype=np.float32)
-    trained_rgb = np.array(matplotlib.colors.to_rgb(TRAINED))
+    policy_rgb = np.array(matplotlib.colors.to_rgb(policy_color))
     greedy_rgb = np.array(matplotlib.colors.to_rgb(GREEDY))
     wall_rgb = np.array(matplotlib.colors.to_rgb(WALL))
-    overlay[state.owner == 1, :3] = trained_rgb
+    overlay[state.owner == 1, :3] = policy_rgb
     overlay[state.owner == 1, 3] = 0.48
     overlay[state.owner == 2, :3] = greedy_rgb
     overlay[state.owner == 2, 3] = 0.48
@@ -267,8 +278,8 @@ def update_board(artists, data, frame_position, game):
         + progress * board_colors(next_state)
     )
     artists["owner"].set_data(
-        (1.0 - progress) * owner_overlay(state)
-        + progress * owner_overlay(next_state)
+        (1.0 - progress) * owner_overlay(state, data["color"])
+        + progress * owner_overlay(next_state, data["color"])
     )
 
     capture = (
@@ -281,32 +292,32 @@ def update_board(artists, data, frame_position, game):
         box.set_visible(bool(capture[row, column]))
         box.set_alpha(1.0 - 0.65 * progress)
 
-    network_score = round(
-        (1.0 - progress) * data["network_scores"][state_index]
-        + progress * data["network_scores"][next_index]
+    policy_score = round(
+        (1.0 - progress) * data["policy_scores"][state_index]
+        + progress * data["policy_scores"][next_index]
     )
     greedy_score = round(
         (1.0 - progress) * data["greedy_scores"][state_index]
         + progress * data["greedy_scores"][next_index]
     )
     artists["score"].set_text(
-        f"network {network_score}   ·   greedy {greedy_score}"
+        f"{data['score_label']} {policy_score}   ·   greedy {greedy_score}"
     )
 
     if state_index < len(data["actions"]):
         action = data["actions"][state_index]
         actor = data["actors"][state_index]
         gain = data["gains"][state_index]
-        actor_label = "raw network" if actor == "network" else "greedy opponent"
-        artists["action"].set_color(TRAINED if actor == "network" else GREEDY)
+        actor_label = data["move_label"] if actor == "policy" else "greedy opponent"
+        artists["action"].set_color(data["color"] if actor == "policy" else GREEDY)
         artists["action"].set_text(
             f"ply {state_index + 1}  ·  {actor_label} chooses {action}  ·  +{gain} value"
         )
     else:
-        if network_score > greedy_score:
-            outcome = "network wins"
-            color = TRAINED
-        elif network_score < greedy_score:
+        if policy_score > greedy_score:
+            outcome = f"{data['score_label']} wins"
+            color = data["color"]
+        elif policy_score < greedy_score:
             outcome = "greedy wins"
             color = GREEDY
         else:
@@ -372,22 +383,24 @@ def update_choice(artists, data, frame_position):
             bar.set_edgecolor("none")
             bar.set_linewidth(0)
 
-    if actor == "network":
+    if actor == "policy":
         value = data["values"][state_index]
-        artists["label"].set_text(
-            f"raw policy preference  ·  value estimate {value:+.2f}"
-        )
+        label = data["preference_label"]
+        if data["show_value"] and value is not None:
+            label += f"  ·  value estimate {value:+.2f}"
+        artists["label"].set_text(label)
     else:
         artists["label"].set_text("greedy immediate-gain preference")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="Create a trained-versus-untrained Weighted Filler GIF",
+        description="Create a trained-anchor-random Weighted Filler GIF",
     )
     parser.add_argument("--checkpoint", type=Path, default=DEFAULT_CHECKPOINT)
     parser.add_argument("--gain-scale", type=float, default=50.0)
-    parser.add_argument("--board-seed", type=int, default=40_001)
+    parser.add_argument("--board-seed", type=int, default=40_003)
+    parser.add_argument("--random-seed", type=int, default=0)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--fps", type=int, default=10)
     parser.add_argument("--transition-frames", type=int, default=3)
@@ -405,30 +418,68 @@ def main():
     initial_state = game.initial_state(np.random.default_rng(args.board_seed))
     trained_network = load_network(args.checkpoint, args.gain_scale)
     torch.manual_seed(0)
-    fresh_network = PolicyNet()
-    fresh_network.eval()
+    anchor_network = PolicyNet()
+    anchor_network.eval()
+    random_rng = np.random.default_rng(args.random_seed)
 
-    print("recording paired raw-policy episodes", flush=True)
-    trained = record_episode(game, trained_network, initial_state)
-    fresh = record_episode(game, fresh_network, initial_state)
-    trained_final = trained["states"][-1]
-    fresh_final = fresh["states"][-1]
+    print("recording trained, anchor, and random episodes", flush=True)
+    trained = record_episode(
+        game,
+        initial_state,
+        lambda state: network_choice(game, trained_network, state),
+        {
+            "score_label": "trained",
+            "move_label": "trained residual",
+            "preference_label": "greedy anchor + learned residual",
+            "show_value": True,
+            "color": TRAINED,
+        },
+    )
+    anchor = record_episode(
+        game,
+        initial_state,
+        lambda state: network_choice(game, anchor_network, state),
+        {
+            "score_label": "anchor",
+            "move_label": "greedy anchor",
+            "preference_label": "immediate weighted gain only · untrained",
+            "show_value": False,
+            "color": ANCHOR,
+        },
+    )
+    random_policy = record_episode(
+        game,
+        initial_state,
+        lambda state: random_choice(game, state, random_rng),
+        {
+            "score_label": "random",
+            "move_label": "uniform random",
+            "preference_label": "equal chance for every legal color · no network",
+            "show_value": False,
+            "color": RANDOM,
+        },
+    )
+    episodes = (trained, anchor, random_policy)
     print(
-        f"trained {game.score(trained_final, 1)}-{game.score(trained_final, 2)}  "
-        f"untrained {game.score(fresh_final, 1)}-{game.score(fresh_final, 2)}",
+        "  ".join(
+            f"{data['score_label']} "
+            f"{data['policy_scores'][-1]}-{data['greedy_scores'][-1]}"
+            for data in episodes
+        ),
         flush=True,
     )
 
     figure, axes = plt.subplot_mosaic(
         [
-            ["trained", "trained", "fresh", "fresh", "trained_choice"],
-            ["trained", "trained", "fresh", "fresh", "fresh_choice"],
-            ["timeline", "timeline", "timeline", "timeline", "summary"],
+            ["trained", "anchor", "random"],
+            ["trained", "anchor", "random"],
+            ["trained_choice", "anchor_choice", "random_choice"],
+            ["timeline", "timeline", "summary"],
         ],
-        figsize=(17, 9),
+        figsize=(18, 10.5),
         gridspec_kw={
-            "width_ratios": (1.05, 1.05, 1.05, 1.05, 1.12),
-            "height_ratios": (1.0, 1.0, 0.72),
+            "width_ratios": (1.0, 1.0, 1.0),
+            "height_ratios": (1.0, 1.0, 0.56, 0.76),
         },
     )
     figure.patch.set_facecolor(BACKGROUND)
@@ -436,79 +487,88 @@ def main():
         left=0.035,
         right=0.98,
         top=0.84,
-        bottom=0.075,
-        wspace=0.34,
-        hspace=0.72,
+        bottom=0.09,
+        wspace=0.24,
+        hspace=0.84,
     )
     figure.suptitle(
-        "Weighted Filler: what the policy learned",
+        "Weighted Filler: learning beyond the greedy anchor",
         color=TEXT,
-        fontsize=20,
+        fontsize=21,
         fontweight="bold",
-        y=0.955,
+        y=0.965,
     )
     figure.text(
         0.5,
-        0.905,
-        f"trained and fresh raw networks · identical held-out board · seed {args.board_seed} · same greedy opponent · no search",
+        0.92,
+        f"median-difficulty board {args.board_seed} · trained seed 1 · random seed {args.random_seed} · same greedy opponent · no MCTS",
         ha="center",
         color=MUTED,
-        fontsize=10.5,
+        fontsize=10.8,
     )
 
     trained_artists = make_board(
         axes["trained"],
         game,
         initial_state,
-        "trained policy · seed 1",
+        "TRAINED · greedy + learned residual",
         TRAINED,
     )
-    fresh_artists = make_board(
-        axes["fresh"],
+    anchor_artists = make_board(
+        axes["anchor"],
         game,
         initial_state,
-        "fresh policy · seed 0",
-        FRESH,
+        "UNTRAINED · greedy anchor only",
+        ANCHOR,
+    )
+    random_artists = make_board(
+        axes["random"],
+        game,
+        initial_state,
+        "RANDOM · uniform legal move",
+        RANDOM,
     )
     trained_choice = style_choice_axis(
         axes["trained_choice"],
-        "trained decision",
+        "trained decision · learned",
         TRAINED,
     )
-    fresh_choice = style_choice_axis(
-        axes["fresh_choice"],
-        "fresh decision",
-        FRESH,
+    anchor_choice = style_choice_axis(
+        axes["anchor_choice"],
+        "anchor decision · built in",
+        ANCHOR,
+    )
+    random_choice_artists = style_choice_axis(
+        axes["random_choice"],
+        "random decision · uniform",
+        RANDOM,
     )
 
     timeline = axes["timeline"]
     timeline.set_facecolor(PANEL)
-    timeline.set_title("weighted territory over the episode", loc="left", color=TEXT, fontsize=11, fontweight="bold")
+    timeline.set_title("score margin against greedy", loc="left", color=TEXT, fontsize=11, fontweight="bold")
     timeline.set_xlabel("ply", color=MUTED, fontsize=9)
-    timeline.set_ylabel("captured value", color=MUTED, fontsize=9)
+    timeline.set_ylabel("policy value − greedy value", color=MUTED, fontsize=9)
     timeline.tick_params(colors=MUTED, labelsize=8)
     timeline.grid(color=PANEL_EDGE, alpha=0.42, linewidth=0.8)
     for spine in timeline.spines.values():
         spine.set_color(PANEL_EDGE)
-    maximum_ply = max(len(trained["states"]), len(fresh["states"])) - 1
-    maximum_score = max(
-        trained["network_scores"].max(),
-        trained["greedy_scores"].max(),
-        fresh["network_scores"].max(),
-        fresh["greedy_scores"].max(),
-    )
+    maximum_ply = max(len(data["states"]) for data in episodes) - 1
+    minimum_margin = min(data["score_margins"].min() for data in episodes)
+    maximum_margin = max(data["score_margins"].max() for data in episodes)
+    margin_padding = max((maximum_margin - minimum_margin) * 0.08, 10)
     timeline.set_xlim(0, maximum_ply)
-    timeline.set_ylim(0, maximum_score * 1.12)
-    trained_network_line, = timeline.plot([], [], color=TRAINED, linewidth=2.7, label="trained network")
-    trained_greedy_line, = timeline.plot([], [], color=GREEDY, linewidth=2.2, label="greedy in trained game")
-    fresh_network_line, = timeline.plot([], [], color=FRESH, linewidth=2.4, linestyle="--", label="fresh network")
-    fresh_greedy_line, = timeline.plot([], [], color=GREEDY, linewidth=2.0, linestyle="--", alpha=0.72, label="greedy in fresh game")
+    timeline.set_ylim(minimum_margin - margin_padding, maximum_margin + margin_padding)
+    timeline.axhline(0, color=TEXT, alpha=0.35, linewidth=1.0)
+    trained_line, = timeline.plot([], [], color=TRAINED, linewidth=2.8, label="trained residual")
+    anchor_line, = timeline.plot([], [], color=ANCHOR, linewidth=2.5, linestyle="--", label="untrained anchor")
+    random_line, = timeline.plot([], [], color=RANDOM, linewidth=2.5, linestyle=":", label="uniform random")
     timeline.legend(
         loc="upper left",
         frameon=False,
         labelcolor=TEXT,
         fontsize=8,
-        ncol=2,
+        ncol=3,
     )
 
     summary = axes["summary"]
@@ -520,7 +580,7 @@ def main():
     summary.text(
         0.06,
         0.87,
-        "HELD-OUT EVIDENCE",
+        "AGGREGATE HELD-OUT EVIDENCE",
         transform=summary.transAxes,
         color=MUTED,
         fontsize=8.5,
@@ -528,8 +588,8 @@ def main():
     )
     summary.text(
         0.06,
-        0.64,
-        "trained · 3-seed mean",
+        0.70,
+        "trained residual · 3-seed mean",
         transform=summary.transAxes,
         color=TRAINED,
         fontsize=10.5,
@@ -537,7 +597,7 @@ def main():
     )
     summary.text(
         0.06,
-        0.45,
+        0.53,
         "56.7% vs greedy  ·  51.4% vs depth 3",
         transform=summary.transAxes,
         color=TEXT,
@@ -545,48 +605,66 @@ def main():
     )
     summary.text(
         0.06,
-        0.25,
-        "fresh control · seed 0",
+        0.35,
+        "untrained greedy anchor",
         transform=summary.transAxes,
-        color=FRESH,
+        color=ANCHOR,
         fontsize=10.5,
         fontweight="bold",
     )
     summary.text(
         0.06,
-        0.08,
+        0.19,
         "50.1% vs greedy  ·  44.7% vs depth 3",
         transform=summary.transAxes,
         color=TEXT,
         fontsize=9.2,
     )
+    summary.text(
+        0.06,
+        0.05,
+        "trained scores 96.5% vs true random",
+        transform=summary.transAxes,
+        color=RANDOM,
+        fontsize=9.2,
+        fontweight="bold",
+    )
 
     legend_handles = [
-        Patch(facecolor=TRAINED, label="network territory"),
+        Patch(facecolor=TRAINED, label="trained territory"),
+        Patch(facecolor=ANCHOR, label="anchor territory"),
+        Patch(facecolor=RANDOM, label="random territory"),
         Patch(facecolor=GREEDY, label="greedy territory"),
-        Patch(facecolor=NEUTRAL, label="neutral cell"),
         Patch(facecolor=WALL, label="wall"),
         Patch(facecolor="none", edgecolor=HIGHLIGHT, linewidth=2, label="next capture"),
     ]
     figure.legend(
         handles=legend_handles,
         loc="lower center",
-        bbox_to_anchor=(0.405, 0.012),
-        ncol=5,
+        bbox_to_anchor=(0.5, 0.018),
+        ncol=6,
         frameon=False,
         labelcolor=TEXT,
         fontsize=8.5,
     )
     figure.text(
-        0.98,
-        0.018,
+        0.035,
+        0.045,
+        "seed rule: lowest central-difficulty board where trained and anchor decisions diverge · outcomes were not used",
+        ha="left",
+        color=MUTED,
+        fontsize=7.7,
+    )
+    figure.text(
+        0.965,
+        0.045,
         "single illustrative game · aggregate results are the scientific comparison",
         ha="right",
         color=MUTED,
-        fontsize=8.2,
+        fontsize=7.7,
     )
 
-    frame_count = max(len(trained["states"]), len(fresh["states"]))
+    frame_count = max(len(data["states"]) for data in episodes)
     frames = [
         ply + phase / args.transition_frames
         for ply in range(frame_count - 1)
@@ -609,14 +687,15 @@ def main():
 
     def update(frame_position):
         update_board(trained_artists, trained, frame_position, game)
-        update_board(fresh_artists, fresh, frame_position, game)
+        update_board(anchor_artists, anchor, frame_position, game)
+        update_board(random_artists, random_policy, frame_position, game)
         update_choice(trained_choice, trained, frame_position)
-        update_choice(fresh_choice, fresh, frame_position)
+        update_choice(anchor_choice, anchor, frame_position)
+        update_choice(random_choice_artists, random_policy, frame_position)
 
-        trained_network_line.set_data(*line_data(trained, "network_scores", frame_position))
-        trained_greedy_line.set_data(*line_data(trained, "greedy_scores", frame_position))
-        fresh_network_line.set_data(*line_data(fresh, "network_scores", frame_position))
-        fresh_greedy_line.set_data(*line_data(fresh, "greedy_scores", frame_position))
+        trained_line.set_data(*line_data(trained, "score_margins", frame_position))
+        anchor_line.set_data(*line_data(anchor, "score_margins", frame_position))
+        random_line.set_data(*line_data(random_policy, "score_margins", frame_position))
 
     animation = FuncAnimation(
         figure,

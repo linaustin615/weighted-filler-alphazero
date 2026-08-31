@@ -2,9 +2,11 @@
 
 Weighted Filler is a two-player 10x10 strategy environment for testing whether a compact AlphaZero-style policy can learn useful delayed decisions beyond immediate-value greedy play. Boards contain clustered cell values, a wall with two gates, six colors, and procedurally generated layouts.
 
-![Trained versus untrained raw policy](trained_vs_untrained.gif)
+![Trained residual, untrained greedy anchor, and uniform random policies](trained_vs_untrained.gif)
 
-The GIF compares a trained raw policy and a fresh network against the same greedy opponent on an identical held-out board, without MCTS. Board seed 40001 was selected before viewing either outcome because it is the first published final-test seed with two visibly separated gate cells. The animation is illustrative; the paired multi-seed evaluation below is the evidence for learning.
+The GIF compares three policies against the same greedy opponent on the same board, without MCTS. The trained seed-1 raw network combines its built-in greedy anchor with a learned residual. The untrained network has the same architecture, but its zero-initialized residual leaves only the immediate weighted-gain anchor. The true random control uses action seed 0, has no network, and samples uniformly from its legal colors.
+
+Board seed 40003 was fixed by a final-score-blind visualization rule. Across seeds 40001–40100, greedy difficulty was measured with 32 side-balanced greedy-versus-random games per board. The rule retained the central-difficulty boards within 0.05 normalized margin of the pool median, then chose the lowest seed where the trained and untrained policies made different decisions. The three displayed outcomes were not used for selection. The animation is illustrative; the paired multi-seed evaluation below is the evidence for learning.
 
 The project uses a depth-5 search teacher, a greedy-anchored residual policy, Gumbel MCTS self-play, and a replay buffer. The primary scientific target is the raw neural policy: it must beat random, greedy, and depth-3 search without MCTS at evaluation time.
 
@@ -21,7 +23,7 @@ Three independent training seeds completed the frozen schedule. For each seed, t
 
 Every independently trained policy beats greedy on the untouched games, with each paired 95% interval above 50%. All three depth-3 point estimates also exceed 50%; seed 0's interval is 50.3%–53.2%, while seeds 1 and 2 remain close enough that their individual intervals include 50%. This is reproducible evidence of learning, while the depth-3 advantage should be described as small rather than decisive across every seed.
 
-The older included `weighted_filler_net.pt` checkpoint remains available for comparison. At its development-selected gain scale of 60 it scores 96.0%/57.6%/52.6% against random/greedy/depth 3, versus 50.1%/44.7% for a fresh untrained anchor against greedy/depth 3.
+The older included `weighted_filler_net.pt` checkpoint remains available for comparison. At its development-selected gain scale of 60 it scores 96.0%/57.6%/52.6% against random/greedy/depth 3, versus 50.1%/44.7% for the untrained greedy anchor against greedy/depth 3.
 
 The combined machine-readable report is `results/three_seed_summary.json`. Reports for the older supplied checkpoint remain under `results/weighted_filler_net_*.json`.
 
@@ -43,7 +45,7 @@ Run the permanent tests:
 python3 -m unittest discover -s tests -v
 ```
 
-Generate the trained-versus-untrained board animation:
+Generate the trained-anchor-random board animation:
 
 ```bash
 python3 visualize.py
@@ -112,7 +114,7 @@ Do not tune architecture, checkpoint, or gain scale on these evaluation seeds. D
 | `calibrate.py` | development-only gain-scale selection |
 | `run_reproduction.py` | sequential three-seed runner with automatic resume |
 | `summarize_results.py` | combined report across official seed evaluations |
-| `visualize.py` | trained-versus-untrained raw-policy board animation |
+| `visualize.py` | trained, greedy-anchor, and uniform-random board animation |
 | `tests/test_core.py` | deterministic environment, augmentation, shape, and MCTS checks |
 
 ## Known limitation
