@@ -41,6 +41,22 @@
         0.591
       ],
       "wins": 573
+    },
+    "random": {
+      "draws": 0,
+      "games": 1000,
+      "losses": 40,
+      "match_score": 0.96,
+      "match_score_ci95": [
+        0.948,
+        0.971
+      ],
+      "strict_win_rate": 0.96,
+      "strict_win_rate_ci95": [
+        0.948,
+        0.972
+      ],
+      "wins": 960
     }
   },
   "untrained_control": {
@@ -75,6 +91,22 @@
         0.503
       ],
       "wins": 501
+    },
+    "random": {
+      "draws": 3,
+      "games": 1000,
+      "losses": 74,
+      "match_score": 0.9245,
+      "match_score_ci95": [
+        0.909,
+        0.9395
+      ],
+      "strict_win_rate": 0.923,
+      "strict_win_rate_ci95": [
+        0.907,
+        0.939
+      ],
+      "wins": 923
     }
   }
 }
